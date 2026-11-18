@@ -1,0 +1,904 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Deck">
+<link rel="apple-touch-icon" href="/static/icon.png">
+<link rel="manifest" href="/static/manifest.json">
+<title>Control Deck</title>
+<style>
+  :root {
+    --text: rgba(255,255,255,.96); --dim: rgba(255,255,255,.56); --faint: rgba(255,255,255,.34);
+    --red: #ff4d5e; --live: #3ddc84; --amber: #ffb547;
+    --pt: max(16px, env(safe-area-inset-top)); --pb: max(14px, env(safe-area-inset-bottom));
+    --pl: max(26px, env(safe-area-inset-left)); --pr: max(26px, env(safe-area-inset-right));
+  }
+  * { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+  html, body { height: 100%; background: #050507; color: var(--text); overflow: hidden;
+    font-family: -apple-system, "SF Pro Display", "SF Pro Text", "Segoe UI Variable", "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+  input { cursor: text; -webkit-user-select: text; user-select: text; outline: none; }
+  svg { display: block; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+  /* light: one huge blurred ring, only its edges show */
+  .light { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .ring { position: absolute; width: 112vw; height: 112vw; left: 50%; top: 50%; translate: -50% -50%; border-radius: 50%;
+    background: conic-gradient(from 0deg, #ff3355, #ff8a3d 18%, #ffd36b 24%, #7b5cff 46%, #2f80ff 62%, #39c6ff 70%, #ff3355 100%);
+    -webkit-mask: radial-gradient(closest-side, transparent 78%, #000 90%, #000 96%, transparent 100%);
+            mask: radial-gradient(closest-side, transparent 78%, #000 90%, #000 96%, transparent 100%);
+    filter: blur(44px) saturate(130%); opacity: .85; animation: spin 90s linear infinite; transition: opacity 1s; }
+  .wash { position: absolute; inset: 0; background: radial-gradient(55% 75% at 50% 50%, rgba(5,5,7,.78), rgba(5,5,7,0) 82%); }
+  @keyframes spin { to { rotate: 360deg; } }
+  body.alert .ring { opacity: 1; filter: blur(30px) saturate(160%); }
+
+  /* liquid glass */
+  .glass { position: relative; isolation: isolate;
+    background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.035));
+    backdrop-filter: blur(22px) saturate(180%); -webkit-backdrop-filter: blur(22px) saturate(180%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(255,255,255,.05), 0 14px 34px rgba(0,0,0,.45); }
+  .glass::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; z-index: -1;
+    background: linear-gradient(145deg, rgba(255,255,255,.55), rgba(255,255,255,.06) 30%, rgba(255,255,255,0) 55%, rgba(255,255,255,.05) 75%, rgba(255,255,255,.30));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude; }
+
+  /* pages */
+  .pages { position: fixed; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+    scrollbar-width: none; overscroll-behavior: contain; }
+  .pages::-webkit-scrollbar { display: none; }
+  .page { flex: 0 0 100%; height: 100%; scroll-snap-align: start; position: relative; padding: var(--pt) var(--pr) calc(var(--pb) + 14px) var(--pl); }
+  .dots { position: fixed; left: 50%; bottom: calc(var(--pb) - 6px); translate: -50% 0; display: flex; gap: 6px; z-index: 3; }
+  .dots i { width: 5px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.28); transition: all .3s; }
+  .dots i.on { background: #fff; width: 16px; }
+  .dots i.ping { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .kicker { font-size: 11px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+
+  /* ---------- desk ---------- */
+  .desk { display: grid; grid-template-columns: 236px 1fr; gap: 26px; align-items: center; }
+  .dialwrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .dial { width: 222px; height: 222px; position: relative; touch-action: none; }
+  .dial svg { width: 100%; height: 100%; overflow: visible; }
+  .dial .readout { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; text-align: center; }
+  .dial .pct { font-size: 52px; font-weight: 200; letter-spacing: -2px; font-variant-numeric: tabular-nums; line-height: 1; }
+  .dial .pct small { font-size: 19px; letter-spacing: 0; color: var(--dim); margin-left: 2px; }
+  .dial .lbl { font-size: 10.5px; font-weight: 600; letter-spacing: .18em; color: var(--faint); margin-top: 6px; text-transform: uppercase; }
+  .dial.muted .pct { color: var(--red); }
+  .seg { display: flex; padding: 4px; border-radius: 20px; gap: 2px; }
+  .seg button { height: 30px; padding: 0 14px; border-radius: 15px; font-size: 12.5px; font-weight: 600; color: var(--dim); transition: all .2s; }
+  .seg button.on { background: rgba(255,255,255,.92); color: #000; }
+
+  .right { display: flex; flex-direction: column; gap: 12px; min-width: 0; height: 100%; justify-content: center; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .clock { font-size: 15px; font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
+  .clock span { color: var(--dim); font-weight: 500; margin-left: 8px; }
+  .chips { display: flex; gap: 8px; min-width: 0; }
+  .chip { height: 30px; padding: 0 12px; border-radius: 15px; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--live); box-shadow: 0 0 8px var(--live); flex: none; }
+  .chip.off i { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .chip.meet { max-width: 230px; overflow: hidden; }
+  .chip.meet span { overflow: hidden; text-overflow: ellipsis; }
+  .chip.meet b { color: var(--amber); font-weight: 600; }
+  .chip.meet.now b { color: var(--live); }
+  .grid { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); grid-auto-rows: 100px; gap: 10px; }
+  .grid.many { grid-auto-rows: 62px; }
+  .card { border-radius: 22px; padding: 13px 14px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+  .grid.many .card { flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; padding: 12px 14px; border-radius: 20px; }
+  .card .g { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: rgba(255,255,255,.10); flex: none; }
+  .card .g svg { width: 18px; height: 18px; }
+  .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; font-weight: 700; flex: none;
+    background: linear-gradient(135deg, rgba(255,255,255,.95), rgba(255,255,255,.65)); color: #111; }
+  .card h4 { font-size: 16px; font-weight: 600; letter-spacing: -.1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card p { font-size: 11.5px; color: var(--dim); margin-top: 2px; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .card p img { width: 13px; height: 13px; border-radius: 3px; flex: none; }
+  .card p { overflow: hidden; }
+  .card p .subt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card > div:last-child { min-width: 0; flex: 1; overflow: hidden; }
+  .card.on { background: linear-gradient(180deg, rgba(255,77,94,.38), rgba(255,77,94,.16)); }
+  .card.on .g { background: rgba(255,255,255,.22); }
+  .card.on p { color: rgba(255,255,255,.85); }
+  .card.on .g svg { animation: pulse 1.2s ease-in-out infinite; } @keyframes pulse { 50% { opacity: .35; } }
+
+  /* ---------- quote: one line to keep going, tap for the next ---------- */
+  .quote { border-radius: 22px; height: 100px; padding: 14px 20px; display: flex; flex-direction: column; justify-content: center; gap: 6px; overflow: hidden; text-align: left; width: 100%; }
+  .quote q { font-size: 16.5px; font-weight: 500; line-height: 1.3; letter-spacing: -.1px; quotes: "\201C" "\201D"; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: opacity .35s; }
+  .quote span { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); transition: opacity .35s; }
+  .quote.fade q, .quote.fade span { opacity: 0; }
+  .quote { touch-action: pan-y; position: relative; will-change: transform; }
+  .quote.drag { transition: none !important; }
+  .quote.fly { transition: transform .22s ease-in, opacity .22s ease-in; }
+  .quote.back { transition: transform .2s ease-out, opacity .2s ease-out; }
+  .quote.health q { quotes: none; font-size: 18px; font-weight: 600; }
+  .quote.k-body, .quote.k-food { background: linear-gradient(135deg, rgba(61,220,132,.30), rgba(57,198,255,.12)); }
+  .quote.k-body span, .quote.k-food span { color: var(--live); }
+  .quote.k-family { background: linear-gradient(135deg, rgba(255,77,94,.32), rgba(255,181,71,.14)); }
+  .quote.k-family span { color: #ff8a95; }
+  .quote.k-mind { background: linear-gradient(135deg, rgba(57,198,255,.30), rgba(120,90,255,.16)); }
+  .quote.k-mind span { color: #7fd6ff; }
+  .quote.k-focus { background: linear-gradient(135deg, rgba(255,181,71,.32), rgba(255,77,94,.10)); }
+  .quote.k-focus span { color: var(--amber); }
+
+  /* ---------- smart card: the floating "what matters now" pill ---------- */
+  .smart { border-radius: 30px; min-height: 92px; padding: 12px 14px 12px 12px; display: flex; align-items: center; gap: 14px; position: relative;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 18px 44px rgba(0,0,0,.55); animation: rise .45s cubic-bezier(.2,.8,.2,1); }
+  @keyframes rise { from { transform: translateY(8px) scale(.98); opacity: 0; } }
+  .smart .vis { width: 68px; height: 68px; border-radius: 18px; overflow: hidden; flex: none; display: grid; place-items: center; background: rgba(255,255,255,.08); }
+  .smart .vis img { width: 100%; height: 100%; object-fit: cover; }
+  .smart .vis svg { width: 26px; height: 26px; }
+  .smart .vis.amber { background: linear-gradient(135deg, rgba(255,181,71,.45), rgba(255,77,94,.25)); }
+  .smart .vis.green { background: linear-gradient(135deg, rgba(61,220,132,.40), rgba(57,198,255,.18)); }
+  .smart .vis.red { background: linear-gradient(135deg, rgba(255,77,94,.5), rgba(255,77,94,.18)); }
+  .smart .txt { flex: 1; min-width: 0; }
+  .smart .k { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .smart .k b { color: var(--amber); font-weight: 700; } .smart .k b.g { color: var(--live); } .smart .k b.r { color: var(--red); }
+  .smart .t { font-size: 17px; font-weight: 600; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.2px; }
+  .smart .s { font-size: 12.5px; color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .smart .acts { display: flex; align-items: center; gap: 6px; flex: none; }
+  .smart .rb { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.08); }
+  .smart .rb svg { width: 17px; height: 17px; }
+  .smart .rb.w { width: 48px; height: 48px; background: #fff; color: #000; }
+  .smart .pill { height: 42px; padding: 0 18px; border-radius: 21px; background: #fff; color: #000; font-weight: 600; font-size: 14px; display: grid; place-items: center; }
+  .smart .more { position: absolute; top: 9px; right: 16px; display: flex; gap: 4px; }
+  .smart .more i { width: 4px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.3); }
+  .smart .more i.on { background: #fff; }
+
+  /* ---------- now playing ---------- */
+  .playing { display: grid; grid-template-columns: auto 1fr; gap: 34px; align-items: center; overflow: hidden; }
+  .artbg { position: absolute; inset: -20%; background-size: cover; background-position: center; filter: blur(60px) saturate(160%); opacity: 0; transition: opacity 1s; z-index: -1; }
+  .artbg.show { opacity: .35; }
+  .art { width: 210px; height: 210px; border-radius: 26px; overflow: hidden; display: grid; place-items: center;
+    box-shadow: 0 24px 60px rgba(0,0,0,.6); }
+  .art img { width: 100%; height: 100%; object-fit: cover; }
+  .art svg { width: 60px; height: 60px; opacity: .5; }
+  .track h2 { font-size: 30px; font-weight: 700; letter-spacing: -.6px; line-height: 1.1; margin-top: 8px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .track h3 { font-size: 17px; font-weight: 500; color: var(--dim); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .transport { display: inline-flex; align-items: center; gap: 8px; padding: 6px; border-radius: 40px; margin-top: 26px; }
+  .transport button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; }
+  .transport button svg { width: 22px; height: 22px; }
+  .transport .pp { width: 66px; height: 66px; background: #fff; color: #000; box-shadow: 0 8px 22px rgba(0,0,0,.45); }
+  .transport .pp svg { width: 26px; height: 26px; }
+
+  /* ---------- focus ---------- */
+  .focus { display: grid; grid-template-columns: auto 1fr; gap: 40px; align-items: center; }
+  .fring { width: 250px; height: 250px; position: relative; }
+  .fring svg { width: 100%; height: 100%; overflow: visible; }
+  .fring .readout { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; pointer-events: none; }
+  .fring .t { font-size: 50px; font-weight: 200; letter-spacing: -1.5px; font-variant-numeric: tabular-nums; }
+  .fside h2 { font-size: 30px; font-weight: 700; letter-spacing: -.5px; margin-top: 8px; }
+  .fside p { font-size: 14px; color: var(--dim); margin-top: 6px; }
+  .fbtns { display: flex; gap: 10px; margin-top: 22px; }
+  .fbtn { height: 52px; padding: 0 24px; border-radius: 18px; font-size: 16px; font-weight: 600; display: flex; align-items: center; }
+  .fbtn.primary { background: #fff; color: #000; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+
+  /* ---------- mic / meeting ---------- */
+  .micpage { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 24px; }
+  .micbtn { width: 176px; height: 176px; border-radius: 50%; display: grid; place-items: center; transition: all .35s; }
+  .micbtn svg { width: 58px; height: 58px; }
+  .micbtn.muted { background: radial-gradient(circle, rgba(255,77,94,.55), rgba(255,77,94,.22)); box-shadow: 0 0 60px rgba(255,77,94,.45), inset 0 1px 0 rgba(255,255,255,.4); }
+  .micinfo h2 { font-size: 30px; font-weight: 700; letter-spacing: -.4px; margin-top: 8px; }
+  .micinfo p { font-size: 13px; color: var(--dim); margin-top: 6px; }
+  .meetcard { border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .meetcard h4 { font-size: 17px; font-weight: 600; line-height: 1.25; }
+  .meetcard .when { font-size: 13px; color: var(--amber); font-weight: 600; }
+  .meetcard .when.now { color: var(--live); }
+  .meetcard .join { height: 44px; border-radius: 14px; background: #fff; color: #000; font-weight: 600; display: grid; place-items: center; margin-top: 4px; }
+  .meetcard .none { font-size: 13px; color: var(--dim); }
+
+  /* ---------- claude ---------- */
+  .claude { display: grid; grid-template-columns: 1fr 290px; align-items: center; gap: 30px; }
+  .ci { width: 46px; height: 46px; border-radius: 12px; overflow: hidden; flex: none; }
+  .ci img { width: 100%; height: 100%; object-fit: cover; }
+  .chead { display: flex; align-items: center; gap: 12px; }
+  .chead h2 { font-size: 24px; font-weight: 700; letter-spacing: -.4px; }
+  .chead .tool { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--amber); margin-bottom: 2px; }
+  .req { margin-top: 16px; border-radius: 18px; padding: 14px 16px; font-size: 14px; line-height: 1.45; max-height: 150px; overflow: hidden;
+    word-break: break-all; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
+  .cwd { font-size: 11.5px; color: var(--faint); margin-top: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quiet p { font-size: 14px; color: var(--dim); margin-top: 10px; line-height: 1.45; max-width: 320px; }
+  .choices { display: flex; flex-direction: column; gap: 9px; }
+  .choice { height: 52px; border-radius: 18px; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .choice.primary { background: #fff; color: #000; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+  .choice.deny { color: var(--red); }
+  .choice.link { height: 30px; font-size: 13px; font-weight: 500; color: var(--dim); }
+  .choices.small .choice { height: 44px; font-size: 14px; }
+
+  /* ---------- overlays ---------- */
+  .night { position: fixed; inset: 0; z-index: 20; background: #000; display: none; place-items: center; text-align: center; }
+  .night.show { display: grid; animation: fade 1.2s ease; }
+  .night .t { font-size: 150px; font-weight: 100; letter-spacing: -6px; color: rgba(255,255,255,.55); font-variant-numeric: tabular-nums; line-height: 1; }
+  .night .d { font-size: 14px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: rgba(255,255,255,.28); margin-top: 14px; }
+  @keyframes fade { from { opacity: 0; } }
+
+  .sheet { position: fixed; inset: 0; z-index: 15; display: none; background: rgba(0,0,0,.55); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+    padding: var(--pt) var(--pr) var(--pb) var(--pl); }
+  .sheet.show { display: grid; grid-template-columns: 1fr 300px; grid-template-rows: auto 1fr; gap: 14px 24px; }
+  .sheet header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
+  .sheet header h3 { font-size: 20px; font-weight: 700; }
+  .sheet header div { display: flex; gap: 8px; }
+  .sbtn { height: 36px; padding: 0 16px; border-radius: 18px; font-size: 14px; font-weight: 600; }
+  .sbtn.primary { background: #fff; color: #000; }
+  .list { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 0; padding-bottom: 8px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 16px; }
+  .row .g { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: rgba(255,255,255,.10); flex: none; }
+  .row .g svg { width: 17px; height: 17px; }
+  .row .nm { flex: 1; min-width: 0; }
+  .row .nm b { display: block; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .nm span { font-size: 11.5px; color: var(--dim); }
+  .row .ib { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: rgba(255,255,255,.08); font-size: 15px; }
+  .row .ib.x { color: var(--red); }
+  .add { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .add .kicker { margin-top: 4px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pchip { height: 34px; padding: 0 12px; border-radius: 17px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .field { height: 42px; border-radius: 14px; padding: 0 14px; font-size: 15px; width: 100%; }
+  .field::placeholder { color: var(--faint); }
+
+  .press { transition: transform .18s cubic-bezier(.2,.8,.2,1), opacity .18s; }
+  .press:active { transform: scale(.95); opacity: .85; }
+  .ok { animation: ok .55s ease; } @keyframes ok { 0% { filter: brightness(1.7); } 100% { filter: none; } }
+  .no { animation: no .4s; } @keyframes no { 25% { translate: -5px 0; } 75% { translate: 5px 0; } }
+  .toast { position: fixed; top: var(--pt); left: 50%; translate: -50% -14px; opacity: 0; transition: all .35s; padding: 9px 16px; border-radius: 18px; font-size: 13px; font-weight: 500; z-index: 30; }
+  .toast.show { translate: -50% 0; opacity: 1; }
+  .lockscr { position: fixed; inset: 0; display: none; place-items: center; z-index: 40; background: rgba(0,0,0,.4); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px); text-align: center; }
+  .lockscr.show { display: grid; }
+  .lockscr p { font-size: 13px; color: var(--dim); margin-top: 6px; }
+  .lockscr input { display: block; margin: 18px auto 0; width: 210px; height: 52px; border-radius: 16px; text-align: center; font-size: 26px; letter-spacing: 12px; }
+</style>
+</head>
+<body>
+<div class="light"><div class="ring"></div><div class="wash"></div></div>
+
+<main class="pages" id="pages">
+  <!-- 1. Desk -->
+  <section class="page desk">
+    <div class="dialwrap">
+      <div class="dial" id="dial">
+        <svg viewBox="0 0 236 236" id="dialSvg"></svg>
+        <div class="readout"><div><div class="pct" id="pct">--<small>%</small></div><div class="lbl" id="dialLbl">Volume</div></div></div>
+      </div>
+      <div class="seg glass" id="dialMode"><button class="on" data-mode="vol">Volume</button><button data-mode="bright">Display</button></div>
+    </div>
+    <div class="right">
+      <div class="top">
+        <div class="clock" id="clock">--:--<span></span></div>
+        <div class="chips">
+          <button class="chip glass meet press" id="meetChip" data-id="meeting:join" style="display:none"><span></span></button>
+          <button class="chip glass press" data-id="mic:toggle" id="micChip"><i></i><span>Mic live</span></button>
+          <div class="chip glass" id="bat">--%</div>
+        </div>
+      </div>
+      <div class="grid" id="grid"></div>
+      <button class="quote glass press" id="quote" aria-label="Next quote"><q></q><span></span></button>
+      <div class="smart glass" id="smart"></div>
+    </div>
+  </section>
+
+  <!-- 2. Claude -->
+  <section class="page claude" id="claudePage"></section>
+  <!-- 3. Now playing -->
+  <section class="page playing">
+    <div class="artbg" id="artbg"></div>
+    <div class="art glass" id="art"></div>
+    <div class="track">
+      <div class="kicker" id="npApp">Now playing</div>
+      <h2 id="npTitle">Nothing playing</h2>
+      <h3 id="npArtist">Start music or a video on the PC</h3>
+      <div class="transport glass">
+        <button class="press" data-id="media:prev" aria-label="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5.5h2v13H6zM19 5.8v12.4a.6.6 0 0 1-.92.5L9.5 12.5a.6.6 0 0 1 0-1l8.58-6.2a.6.6 0 0 1 .92.5z"/></svg></button>
+        <button class="pp press" data-id="media:play" id="ppBtn" aria-label="Play or pause"></button>
+        <button class="press" data-id="media:next" aria-label="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5.5h2v13h-2zM5 5.8v12.4a.6.6 0 0 0 .92.5l8.58-6.2a.6.6 0 0 0 0-1L5.92 5.3a.6.6 0 0 0-.92.5z"/></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Focus -->
+  <section class="page focus">
+    <div class="fring"><svg viewBox="0 0 250 250" id="focusSvg"></svg><div class="readout"><div><div class="t" id="focusT">25:00</div><div class="kicker" id="focusK">Ready</div></div></div></div>
+    <div class="fside">
+      <div class="kicker">Focus</div>
+      <h2 id="focusH">One thing at a time</h2>
+      <p id="focusP">Pick a session. The PC chimes when it ends.</p>
+      <div class="fbtns" id="focusBtns"></div>
+    </div>
+  </section>
+
+  <!-- 5. Mic & meeting -->
+  <section class="page micpage">
+    <div class="micinfo">
+      <div class="kicker">Microphone</div>
+      <h2 id="micTitle">Mic is live</h2>
+      <p id="micSub">Tap the circle to mute</p>
+    </div>
+    <button class="micbtn glass press" id="micBtn" data-id="mic:toggle" aria-label="Toggle microphone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+    <div class="meetcard glass" id="meetCard"></div>
+  </section>
+
+</main>
+
+<div class="dots" id="dots"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+
+<div class="sheet" id="sheet">
+  <header><h3>Edit tiles</h3><div><button class="sbtn glass press" id="sheetCancel">Cancel</button><button class="sbtn primary press" id="sheetSave">Save</button></div></header>
+  <div class="list" id="sheetList"></div>
+  <div class="add">
+    <div class="kicker">Add a WhatsApp chat</div>
+    <input class="field glass" id="waChat" placeholder="Chat name as in WhatsApp">
+    <input class="field glass" id="waTitle" placeholder="Label on the tile (optional)">
+    <button class="sbtn primary press" id="waAdd" style="height:42px">Add chat</button>
+    <div class="kicker">Add an action</div>
+    <div class="presets" id="presetChips"></div>
+  </div>
+</div>
+
+<div class="night" id="night"><div><div class="t" id="nightT">--:--</div><div class="d" id="nightD"></div></div></div>
+<div class="lockscr" id="lockscr"><div><h3>Control Deck</h3><p>Enter the PIN shown on your PC</p><input class="glass" id="pinIn" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div></div>
+<div class="toast glass" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+const G = (d, extra = "") => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${extra}>${d}</svg>`;
+const GLYPH = {
+  wave: G('<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/>', 'stroke-width="2"'),
+  shot: G('<rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="12" cy="12" r="3.2"/>'),
+  snip: G('<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/>'),
+  lock: G('<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>'),
+  video: G('<rect x="3" y="6" width="13" height="12" rx="3"/><path d="m16 10.5 5-3v9l-5-3"/>'),
+  timer: G('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>'),
+  desktop: G('<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/>'),
+  away: G('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'),
+  gate: G('<path d="M3 20V8l9-4 9 4v12"/><path d="M7 20v-8h10v8M12 12v8"/>'),
+  check: G('<circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16.2 9.5"/>'),
+  eco: G('<path d="M5 19c0-8 5-13 15-14-1 10-6 15-14 15"/><path d="M5 19c3-4 6-7 10-9"/>'),
+  camera: G('<path d="M4 7.5h3l1.6-2.2h6.8L17 7.5h3a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.3"/>'),
+  terminal: G('<rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="m7 9.5 3 2.5-3 2.5M12.5 15h4.5"/>'),
+  note: G('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>'),
+  bolt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.5 2 4 13.5h6.5L9.5 22 20 9.5h-6.6z"/></svg>'
+};
+const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.8v14.4a.8.8 0 0 0 1.22.68l11.2-7.2a.8.8 0 0 0 0-1.36L8.22 4.12A.8.8 0 0 0 7 4.8z"/></svg>';
+const PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4.5" width="4" height="15" rx="1.2"/><rect x="14" y="4.5" width="4" height="15" rx="1.2"/></svg>';
+
+let PIN = ""; try { PIN = localStorage.getItem("deckPin") || ""; } catch (e) {}
+let S = {}, CFG = null, skew = 0;
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2000); }
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "X-Pin": PIN, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { askPin(); throw new Error("pin"); }
+  return r.json();
+}
+function askPin() { $("#lockscr").classList.add("show"); const i = $("#pinIn"); i.value = ""; setTimeout(() => i.focus(), 120); }
+$("#pinIn").addEventListener("input", (e) => { if (e.target.value.length === 6) { PIN = e.target.value; try { localStorage.setItem("deckPin", PIN); } catch (er) {} $("#lockscr").classList.remove("show"); start(); } });
+const now = () => Date.now() + skew;
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- clock + night ---------- */
+function tick() {
+  const d = new Date(), t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M/i, "");
+  $("#clock").innerHTML = t + "<span>" + d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) + "</span>";
+  $("#nightT").textContent = t; $("#nightD").textContent = d.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  const hr = d.getHours(), nightHours = hr >= NIGHT_FROM || hr < NIGHT_TO;  // night clock only between these hours
+  if (nightHours && Date.now() - lastTouch > 10 * 60000 && !$("#sheet").classList.contains("show")) $("#night").classList.add("show");
+  if (!nightHours) $("#night").classList.remove("show");
+  paintMeeting(); paintFocus(); if (CFG) paintSmart();
+}
+let lastTouch = Date.now();
+const NIGHT_FROM = 21, NIGHT_TO = 7;  // 9 PM to 7 AM
+document.addEventListener("pointerdown", () => { lastTouch = Date.now(); }, true);
+$("#night").addEventListener("click", (e) => { e.stopPropagation(); $("#night").classList.remove("show"); lastTouch = Date.now(); });
+
+/* ---------- dial: volume or display ---------- */
+const C = 118, R = 92, START = 135, SWEEP = 270;
+const pol = (a, r = R) => [C + r * Math.cos(a * Math.PI / 180), C + r * Math.sin(a * Math.PI / 180)];
+function arc(a0, a1, r = R) { const [x0, y0] = pol(a0, r), [x1, y1] = pol(a1, r); return `M${x0} ${y0} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`; }
+let mode = "vol", vol = 0, muted = false, bright = 0, dragging = false;
+function ticks(level, n, r0, r1, r2) {
+  let s = "";
+  for (let i = 0; i <= n; i++) { const a = START + SWEEP * i / n, on = i / n <= level, major = i % 5 === 0;
+    const [x0, y0] = pol(a, r0), [x1, y1] = pol(a, major ? r1 : r2);
+    s += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="rgba(255,255,255,${on ? .9 : .22})" stroke-width="${major ? 1.6 : 1}" stroke-linecap="round"/>`; }
+  return s;
+}
+function drawDial() {
+  const level = mode === "vol" ? vol : bright, isMuted = mode === "vol" && muted;
+  const end = START + SWEEP * Math.max(0.0001, level), [kx, ky] = pol(end, R), col = isMuted ? "#ff4d5e" : mode === "bright" ? "#ffd36b" : "#fff";
+  $("#dialSvg").innerHTML = `<defs><linearGradient id="lg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="${col}" stop-opacity=".5"/><stop offset="1" stop-color="${col}"/></linearGradient></defs>
+    <circle cx="${C}" cy="${C}" r="78" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.10)"/>${ticks(level, 40, 110, 103, 106)}
+    <path d="${arc(START, START + SWEEP)}" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="10" stroke-linecap="round"/>
+    <path d="${arc(START, end)}" fill="none" stroke="url(#lg)" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="${kx}" cy="${ky}" r="11" fill="#fff" style="filter:drop-shadow(0 3px 8px rgba(0,0,0,.5))"/>`;
+  $("#pct").innerHTML = isMuted ? "Muted" : Math.round(level * 100) + "<small>%</small>";
+  $("#pct").style.fontSize = isMuted ? "34px" : "";
+  $("#dial").classList.toggle("muted", isMuted);
+  $("#dialLbl").textContent = mode === "bright" ? "Display" : isMuted ? "Tap to unmute" : "Volume";
+}
+$("#dialMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; mode = b.dataset.mode;
+  $$("#dialMode button").forEach(x => x.classList.toggle("on", x === b)); drawDial(); });
+let sendT = 0, pending = null;
+function sendLevel(v) { const id = mode === "vol" ? "vol:set" : "bright:set", now = Date.now();
+  if (now - sendT > (mode === "vol" ? 70 : 200)) { sendT = now; pending = null; api("/api/action", { id, value: v }).catch(() => {}); } else pending = { id, v }; }
+setInterval(() => { if (pending) { const p = pending; pending = null; api("/api/action", { id: p.id, value: p.v }).catch(() => {}); } }, 220);
+function fromEvent(e) { const r = $("#dial").getBoundingClientRect(), x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2;
+  return { d: Math.hypot(x, y) / (r.width / 236), a: (Math.atan2(y, x) * 180 / Math.PI + 360) % 360 }; }
+function angleToLevel(a) { let t = (a - START + 360) % 360; if (t > SWEEP) t = t - SWEEP < (360 - SWEEP) / 2 ? SWEEP : 0; return t / SWEEP; }
+function setLevel(v) { if (mode === "vol") { vol = v; muted = false; } else bright = v; drawDial(); sendLevel(v); }
+const dial = $("#dial");
+dial.addEventListener("pointerdown", (e) => {
+  const p = fromEvent(e);
+  if (p.d < 62) { if (mode === "vol") { muted = !muted; drawDial(); api("/api/action", { id: "vol:mute" }).catch(() => toast("Your PC isn't reachable")); } return; }
+  dragging = true; dial.setPointerCapture(e.pointerId); setLevel(angleToLevel(p.a));
+});
+dial.addEventListener("pointermove", (e) => { if (dragging) setLevel(angleToLevel(fromEvent(e).a)); });
+dial.addEventListener("pointerup", () => { dragging = false; });
+
+/* ---------- quotes: shown when no reminder is due, a new one every 30 min, swipe for the next ----------
+   Edit these to your own taste: [text, source]. */
+const QUOTES = [
+  // thinkers
+  ["We suffer more often in imagination than in reality.", "Seneca, Letters"],
+  ["It is not that we have a short time to live, but that we waste a lot of it.", "Seneca, On the Shortness of Life"],
+  ["How we spend our days is, of course, how we spend our lives.", "Annie Dillard, The Writing Life"],
+  ["Attention is the rarest and purest form of generosity.", "Simone Weil"],
+  ["Not everything that is faced can be changed, but nothing can be changed until it is faced.", "James Baldwin"],
+  ["Children have never been very good at listening to their elders, but they have never failed to imitate them.", "James Baldwin"],
+  ["The opposite of love is not hate, it is indifference.", "Elie Wiesel"],
+  ["The first principle is that you must not fool yourself, and you are the easiest person to fool.", "Richard Feynman"],
+  ["What I cannot create, I do not understand.", "Richard Feynman, last blackboard"],
+  ["Study hard what interests you the most in the most undisciplined, irreverent and original manner possible.", "Richard Feynman"],
+  ["The map is not the territory.", "Alfred Korzybski"],
+  ["All models are wrong, but some are useful.", "George Box, statistician"],
+  ["Invert, always invert: ask what would guarantee failure, then avoid it.", "Carl Jacobi, via Charlie Munger"],
+  ["Show me the incentive and I will show you the outcome.", "Charlie Munger"],
+  ["Simplicity is prerequisite for reliability.", "Edsger Dijkstra"],
+  ["I have made this longer than usual because I have not had time to make it shorter.", "Blaise Pascal"],
+  ["All of humanity's problems stem from man's inability to sit quietly in a room alone.", "Blaise Pascal, Pensées"],
+  ["Be regular and orderly in your life, so that you may be violent and original in your work.", "Gustave Flaubert"],
+  ["The limits of my language mean the limits of my world.", "Ludwig Wittgenstein"],
+  ["Life can only be understood backwards; but it must be lived forwards.", "Søren Kierkegaard"],
+  ["Instructions for living a life: Pay attention. Be astonished. Tell about it.", "Mary Oliver"],
+  ["Doubt is not a pleasant condition, but certainty is absurd.", "Voltaire"],
+  ["The question is not what you look at, but what you see.", "Henry David Thoreau, Journal"],
+  ["A man is rich in proportion to the number of things he can afford to let alone.", "Henry David Thoreau, Walden"],
+  ["The cost of a thing is the amount of life which is required to be exchanged for it.", "Henry David Thoreau, Walden"],
+  ["Whenever you find yourself on the side of the majority, it is time to pause and reflect.", "Mark Twain, notebook"],
+  ["Your children are not your children. They are the sons and daughters of Life's longing for itself.", "Kahlil Gibran, The Prophet"],
+  ["Work is love made visible.", "Kahlil Gibran, The Prophet"],
+  ["Yoga is skill in action.", "Bhagavad Gita 2.50"],
+  ["Better your own duty done imperfectly than another's done well.", "Bhagavad Gita 3.35"],
+  ["If you would be loved, love and be lovable.", "Benjamin Franklin, Poor Richard"],
+  ["Real generosity toward the future lies in giving all to the present.", "Albert Camus, The Rebel"],
+  ["In the midst of winter, I found there was, within me, an invincible summer.", "Albert Camus"],
+  ["Everyone thinks of changing the world, but no one thinks of changing himself.", "Leo Tolstoy"],
+  ["First say to yourself what you would be; and then do what you have to do.", "Epictetus, Discourses"],
+  ["No one is free who is not master of himself.", "Epictetus"],
+  ["The happiness of your life depends upon the quality of your thoughts.", "Marcus Aurelius"],
+  ["Plans are worthless, but planning is everything.", "Dwight Eisenhower"],
+  ["The best way to find out if you can trust somebody is to trust them.", "Ernest Hemingway, letter"],
+  ["Habit is a cable; we weave a thread of it each day, and at last we cannot break it.", "Horace Mann"],
+  ["If you have a garden and a library, you have everything you need.", "Cicero"],
+  ["Do not try to be original, just try to be good.", "Paul Rand, designer"],
+  ["Science is a way of thinking much more than it is a body of knowledge.", "Carl Sagan"],
+  ["If you wish to make an apple pie from scratch, you must first invent the universe.", "Carl Sagan, Cosmos"],
+  ["It is a capital mistake to theorize before one has data.", "Sherlock Holmes, Arthur Conan Doyle"],
+  ["You see, but you do not observe.", "Sherlock Holmes, A Scandal in Bohemia"],
+  ["Knowing others is intelligence; knowing yourself is true wisdom.", "Lao Tzu, Tao Te Ching 33"],
+  ["A good traveller has no fixed plans and is not intent on arriving.", "Lao Tzu, Tao Te Ching 27"],
+  ["Real knowledge is to know the extent of one's ignorance.", "Confucius, Analects"],
+  ["You can't cross the sea merely by standing and staring at the water.", "Rabindranath Tagore"],
+  ["Faith is the bird that feels the light and sings when the dawn is still dark.", "Rabindranath Tagore"],
+  ["Talent hits a target no one else can hit; genius hits a target no one else can see.", "Arthur Schopenhauer"],
+  ["Writing is nature's way of letting you know how sloppy your thinking is.", "Dick Guindon, cartoonist"],
+  ["Before enlightenment, chop wood, carry water. After enlightenment, chop wood, carry water.", "Zen saying"],
+  ["Not knowing is most intimate.", "Zen master Dizang"],
+  ["Do not seek to follow in the footsteps of the wise; seek what they sought.", "Matsuo Bashō"],
+  // new things
+  ["A day on Venus is longer than its year: 243 Earth days to spin once, 225 to go round the Sun.", "Did you know"],
+  ["Sharks are older than trees: about 450 million years against about 385.", "Did you know"],
+  ["Oxford was already teaching students before the Aztecs founded Tenochtitlan in 1325.", "Did you know"],
+  ["Cleopatra lived closer in time to the Moon landing than to the building of the Great Pyramid.", "Did you know"],
+  ["There are more possible games of chess than atoms in the observable universe.", "Did you know"],
+  ["Brahmagupta wrote down the rules for zero as a number in 628 CE.", "Did you know"],
+  ["Chess began in India as chaturanga, around the 6th century.", "Did you know"],
+  ["Shampoo comes from the Hindi champo: to press or knead.", "Did you know"],
+  ["Sunlight takes about 8 minutes 20 seconds to reach you. You always see the Sun as it was.", "Did you know"],
+  ["Your brain is about 2% of your body weight and burns about 20% of its energy.", "Did you know"],
+  ["Octopuses have 3 hearts and blue blood.", "Did you know"],
+  ["The Eiffel Tower grows about 15 cm in summer as its iron expands.", "Did you know"],
+  ["A bolt of lightning is about 5 times hotter than the surface of the Sun.", "Did you know"],
+  ["Sound travels about 4 times faster through water than through air.", "Did you know"],
+  ["Honey sealed in Egyptian tombs thousands of years ago has been found still edible.", "Did you know"],
+  ["Botanically, bananas are berries and strawberries are not.", "Did you know"],
+  ["Hummingbirds can fly backwards.", "Did you know"],
+  ["The lining of your gut renews itself every 3 to 5 days.", "Did you know"],
+  ["Japanese potters mend broken bowls with gold, so the repair becomes part of the story.", "Kintsugi"],
+  // questions
+  ["What are you pretending not to know?", "Question to sit with"],
+  ["Which of today's worries will still matter in a year?", "Question to sit with"],
+  ["What do the people closest to you see you doing most often?", "Question to sit with"],
+  ["When did you last learn something only because it was interesting?", "Question to sit with"],
+  ["What is one kind thing you could do for someone at home this week, unasked?", "Question to sit with"],
+  ["What are you tolerating that 1 hour of effort would fix?", "Question to sit with"],
+  ["Who taught you something you never thanked them for?", "Question to sit with"],
+  ["What would you do this week if no one would ever find out?", "Question to sit with"]
+];
+// a new order every day, so the same lines do not come round at the same hour
+(function shuffleDaily() { let s = 0; for (const c of new Date().toDateString()) s = (s * 31 + c.charCodeAt(0)) >>> 0;
+  for (let i = QUOTES.length - 1; i > 0; i--) { s = (s * 1103515245 + 12345) >>> 0; const j = s % (i + 1); [QUOTES[i], QUOTES[j]] = [QUOTES[j], QUOTES[i]]; } })();
+/* ---------- reminders: the day's plan, by the clock. EDIT THESE TO YOUR OWN DAY. ----------
+   [from, to, kind, text, days, fixed]
+   - kind: body, food, mind, focus or family (sets the card colour)
+   - text: a string, or a list of 7 strings (Sun..Sat) for a different one each day
+   - days: omit or null = every day; WD = Mon-Fri; or a list like [2, 4, 6] (0 = Sunday)
+   - fixed: 1 = tied to a clock time; it cuts in ahead of whatever is showing
+   Every card stays at least 30 min unless swiped (right = done, left = skip for today).
+   QUIET is a weekday deep-work block in minutes from midnight; only fixed cards show inside it. */
+const WD = [1, 2, 3, 4, 5], ALL = null;
+const QUIET = [600, 690];  // 10:00-11:30
+const NUDGES = [
+  ["09:00", "12:00", "body",   "Neck reset, 2 min: chin tucks and a slow side stretch."],
+  ["09:30", "10:00", "focus",  "Pick the ONE thing that makes today a win. Write it down.", WD],
+  ["10:00", "11:30", "focus",  "Deep block until 11:30. Phone face down, chat apps closed.", WD, 1],
+  ["10:00", "12:00", "family", "Plan an outing or a long walk with the people you live with.", [6]],
+  ["11:00", "12:30", "focus",  "Weekly review: what moved, what stalled, what to drop.", [0]],
+  ["11:30", "12:15", "body",   "Up from the desk: walk 3 minutes, then drink a full glass of water."],
+  ["12:15", "12:45", "focus",  "Batch messages: reply, decide or delegate. Then close chat again.", WD],
+  ["12:30", "13:15", "body",   "One set: 10 chair squats and 10 calf raises."],
+  ["13:45", "14:15", "body",   "Walk 10 minutes after lunch."],
+  ["15:30", "16:00", "mind",   "2 min off screens. Look out the window at something far away."],
+  ["16:00", "16:30", "body",   "Neck stretch, 30 s each side. Then a full glass of water."],
+  ["16:30", "17:30", "family", "Call someone you have not spoken to this week.", [1, 3, 5], 1],
+  ["17:00", "17:45", "food",   ["Snack: a piece of fruit.",
+                                "Snack: yoghurt and a handful of nuts.",
+                                "Snack: roasted chickpeas and an apple.",
+                                "Snack: carrot and cucumber sticks with hummus.",
+                                "Snack: a boiled egg and a pear.",
+                                "Snack: cheese and a few crackers.",
+                                "Snack: a banana and a glass of buttermilk."]],
+  ["17:30", "18:00", "focus",  "Close loops (invoices, follow-ups, replies owed), then write tomorrow's top 3.", WD],
+  ["18:00", "18:30", "body",   "Workout at 6:30. Shoes on now. Even 30 minutes counts.", [2, 4, 6], 1],
+  ["19:30", "20:15", "family", "Phone-free dinner. Ask someone about their day and listen."],
+  ["20:15", "20:45", "body",   "Walk 15 min after dinner."],
+  ["21:30", "22:00", "mind",   "Write 3 lines: one win, one thank-you, one thing to drop."],
+  ["22:00", "23:30", "mind",   "Day done. Laptop shut. In bed: 5 slow breaths, in for 4, out for 6.", null, 1],
+];
+const KIND = { body: "Body", food: "Food", mind: "Mind", focus: "Focus", family: "Family" };
+const mins = (s) => { const [h, m] = s.split(":"); return +h * 60 + +m; };
+const today = () => new Date().toDateString();
+const HOLD = 30 * 60000;  // a card stays at least this long unless swiped
+const fresh = () => ({ day: today(), ids: [], cur: null, at: 0 });
+let done = {}; try { done = JSON.parse(localStorage.getItem("deckNudges") || "{}"); } catch (e) {}
+if (done.day !== today()) done = fresh();
+if (!("cur" in done)) { done.cur = null; done.at = 0; }
+function saveDone() { try { localStorage.setItem("deckNudges", JSON.stringify(done)); } catch (e) {} }
+const nudgeText = (i) => { const x = NUDGES[i][3]; return Array.isArray(x) ? x[new Date().getDay()] : x; };
+function eligible(i, t, wd) {
+  const [f, to, , , days, fixed] = NUDGES[i];
+  if (days && !days.includes(wd)) return false;
+  if (t < mins(f) || t >= mins(to) || done.ids.includes(i)) return false;
+  const quiet = WD.includes(wd) && t >= QUIET[0] && t < QUIET[1];
+  return !quiet || !!fixed;
+}
+function dueNudge() {
+  const d = new Date(), t = d.getHours() * 60 + d.getMinutes(), wd = d.getDay(), nowMs = Date.now();
+  if (done.day !== today()) done = fresh();
+  const all = NUDGES.map((_, i) => i).filter(i => eligible(i, t, wd));
+  let cur = done.cur;
+  if (cur != null && (done.ids.includes(cur) || !NUDGES[cur])) cur = null;
+  if (cur != null) {
+    const others = all.filter(i => i !== cur);
+    const cs = mins(NUDGES[cur][0]);
+    if (others.some(i => NUDGES[i][5] && (!NUDGES[cur][5] || mins(NUDGES[i][0]) > cs))) cur = null;  // a fixed-time card cuts in
+    else if (nowMs - done.at >= HOLD && (others.length || !eligible(cur, t, wd))) {  // held 30 min, time to move on
+      done.ids.push(cur); cur = null;
+    }
+  }
+  if (cur == null && all.length) {
+    // fixed cards first, the newest of them first; the rest oldest first
+    all.sort((a, b) => (NUDGES[b][5] ? 1 : 0) - (NUDGES[a][5] ? 1 : 0)
+      || (NUDGES[a][5] ? mins(NUDGES[b][0]) - mins(NUDGES[a][0]) : mins(NUDGES[a][0]) - mins(NUDGES[b][0])) || a - b);
+    cur = all[0]; done.at = nowMs;
+  }
+  if (cur !== done.cur) { done.cur = cur; saveDone(); }
+  return cur == null ? -1 : cur;
+}
+let qi = Math.floor(Math.random() * QUOTES.length), shown = null, lastSlot = -1;
+function paintCard(text, label, kind) {
+  const el = $("#quote"); el.classList.add("fade");
+  setTimeout(() => { el.querySelector("q").textContent = text; el.querySelector("span").textContent = label;
+    el.className = "quote glass press" + (kind ? " health k-" + kind : ""); }, 350);
+}
+function refreshCard(force) {
+  const n = dueNudge();
+  if (n >= 0) { if (shown !== n || force) { shown = n; const x = NUDGES[n];
+    paintCard(nudgeText(n), KIND[x[2]] + " · swipe → done · ← skip", x[2]); } return; }
+  const d = new Date(), slot = d.getHours() * 2 + (d.getMinutes() >= 30 ? 1 : 0);  // a new rule every 30 min
+  if (shown !== "q" || slot !== lastSlot || force) { if (slot !== lastSlot && lastSlot !== -1) qi = (qi + 1) % QUOTES.length;
+    lastSlot = slot; shown = "q"; paintCard(QUOTES[qi][0], QUOTES[qi][1], null); }
+}
+refreshCard(true);
+setInterval(() => refreshCard(false), 30000);
+// Swipe right = done, swipe left = skip for today; both move on to the next one. Tap still = done.
+function settle(skip) {
+  if (typeof shown === "number") { done.ids.push(shown); done.cur = null; saveDone(); toast(skip ? "Skipped for today" : "Done. Nice"); }
+  else qi = (qi + 1) % QUOTES.length;
+  refreshCard(true);
+}
+let swX = null, swDx = 0, swiped = false;
+const qc = $("#quote");
+qc.addEventListener("pointerdown", (e) => { swX = e.clientX; swDx = 0; swiped = false; qc.classList.remove("fly", "back"); });
+qc.addEventListener("pointermove", (e) => {
+  if (swX === null) return;
+  swDx = e.clientX - swX;
+  if (Math.abs(swDx) > 8) { if (!qc.hasPointerCapture(e.pointerId)) qc.setPointerCapture(e.pointerId);
+    qc.classList.add("drag"); qc.style.transform = `translateX(${swDx}px) rotate(${swDx / 60}deg)`; qc.style.opacity = String(1 - Math.min(Math.abs(swDx) / 400, .5)); }
+});
+function swEnd() {
+  if (swX === null) return;
+  const dx = swDx; swX = null; qc.classList.remove("drag");
+  if (Math.abs(dx) > 80) {
+    swiped = true; qc.classList.add("fly");
+    qc.style.transform = `translateX(${dx > 0 ? 120 : -120}%)`; qc.style.opacity = "0";
+    setTimeout(() => { qc.classList.remove("fly"); qc.style.transform = ""; qc.style.opacity = ""; settle(dx < 0); }, 230);
+  } else {
+    if (Math.abs(dx) > 8) swiped = true;
+    qc.classList.add("back"); qc.style.transform = ""; qc.style.opacity = "";
+  }
+}
+qc.addEventListener("pointerup", swEnd);
+qc.addEventListener("pointercancel", swEnd);
+qc.addEventListener("click", () => { if (swiped) { swiped = false; return; } settle(false); });
+
+/* ---------- tiles ---------- */
+function tileLead(a) { return a.avatar ? `<div class="av">${esc(a.avatar)}</div>` : `<div class="g">${GLYPH[a.glyph] || GLYPH.bolt}</div>`; }
+function renderTiles() {
+  const grid = $("#grid"), n = CFG.actions.length; grid.classList.add("many");  // label beside the icon, short row
+  grid.style.setProperty("--cols", n <= 4 ? Math.max(n, 1) : n <= 6 ? 3 : 4);
+  grid.innerHTML = CFG.actions.map(a => `<button class="card glass press" data-id="${esc(a.id)}" data-toggle="${a.toggle ? 1 : 0}">${tileLead(a)}<div style="min-width:0">
+    <h4 data-t="${esc(a.title)}">${esc(a.title)}</h4><p>${a.icon ? `<img src="/static/${a.icon}" alt="">` : ""}<span class="subt" data-sub="${esc(a.sub)}">${esc(a.sub)}</span></p></div></button>`).join("");
+}
+let pressTimer = null, longPressed = false;
+$("#grid").addEventListener("pointerdown", (e) => { if (!e.target.closest(".card")) return; longPressed = false;
+  pressTimer = setTimeout(() => { longPressed = true; openSheet(); }, 600); });
+["pointerup", "pointerleave", "pointercancel"].forEach(ev => $("#grid").addEventListener(ev, () => clearTimeout(pressTimer)));
+
+/* ---------- tile editor ---------- */
+let draft = [];
+function openSheet() { draft = CFG.actions.map(a => ({ ...a })); renderSheet(); $("#sheet").classList.add("show"); }
+function renderSheet() {
+  $("#sheetList").innerHTML = draft.map((a, i) => `<div class="row glass">${tileLead(a)}<div class="nm"><b>${esc(a.title)}</b><span>${esc(a.type === "whatsapp" ? "WhatsApp · " + a.chat : a.sub)}</span></div>
+    <button class="ib press" data-mv="${i}:-1">↑</button><button class="ib press" data-mv="${i}:1">↓</button><button class="ib x press" data-rm="${i}">✕</button></div>`).join("");
+  const have = new Set(draft.map(a => a.id));
+  $("#presetChips").innerHTML = CFG.presets.filter(p => !have.has(p.id)).map(p => `<button class="pchip glass press" data-add="${p.id}">${GLYPH[p.glyph] ? GLYPH[p.glyph].replace("<svg", '<svg width="15" height="15"') : ""}${esc(p.title)}</button>`).join("") || `<span class="kicker" style="text-transform:none;letter-spacing:0">All actions are on the deck</span>`;
+}
+$("#sheetList").addEventListener("click", (e) => {
+  const mv = e.target.closest("[data-mv]"), rm = e.target.closest("[data-rm]");
+  if (mv) { const [i, d] = mv.dataset.mv.split(":").map(Number), j = i + d; if (j >= 0 && j < draft.length) { [draft[i], draft[j]] = [draft[j], draft[i]]; renderSheet(); } }
+  if (rm) { if (draft.length > 1) { draft.splice(+rm.dataset.rm, 1); renderSheet(); } else toast("Keep at least one tile"); }
+});
+$("#presetChips").addEventListener("click", (e) => { const b = e.target.closest("[data-add]"); if (!b) return;
+  if (draft.length >= 9) return toast("Nine tiles is the limit"); draft.push({ ...CFG.presets.find(p => p.id === b.dataset.add) }); renderSheet(); });
+$("#waAdd").addEventListener("click", () => {
+  const chat = $("#waChat").value.trim(), title = $("#waTitle").value.trim() || chat;
+  if (!chat) return toast("Type the chat name first"); if (draft.length >= 9) return toast("Nine tiles is the limit");
+  draft.push({ id: "", type: "whatsapp", chat, title, avatar: title[0].toUpperCase(), sub: "WhatsApp" });
+  $("#waChat").value = ""; $("#waTitle").value = ""; renderSheet();
+});
+$("#sheetCancel").addEventListener("click", () => $("#sheet").classList.remove("show"));
+$("#sheetSave").addEventListener("click", async () => {
+  try { const r = await api("/api/tiles", { tiles: draft.map(a => a.type === "whatsapp" ? { id: a.id, type: "whatsapp", chat: a.chat, title: a.title } : { id: a.id }) });
+    if (!r.ok) return toast(r.msg); $("#sheet").classList.remove("show"); await loadConfig(); toast("Tiles saved");
+  } catch (e) { toast("Couldn't save"); }
+});
+
+/* ---------- smart card ---------- */
+const CHECK = G('<path d="m5 12.5 4.5 4.5L19 7.5"/>', 'stroke-width="2.4"');
+let smartIdx = 0, smartSig = "";
+function smartItems() {
+  const items = [], t = now(), m = S.meeting, tasks = S.tasks || [];
+  if (m && m.start - t < 15 * 60000 && t < m.end) items.push({ type: "meeting", urgent: true });
+  if (S.focus) items.push({ type: "focus" });
+  if (S.now && S.now.playing) items.push({ type: "music" });
+  if (m && !(m.start - t < 15 * 60000) && new Date(m.start).toDateString() === new Date(t).toDateString()) items.push({ type: "meeting" });
+  if (S.now && !S.now.playing) items.push({ type: "music" });
+  return items.length ? items : [{ type: "clear" }];
+}
+function paintSmart() {
+  const items = smartItems(), it = items[smartIdx % items.length], t = now();
+  let vis = "", k = "", title = "", sub = "", acts = "";
+  if (it.type === "music") {
+    const n = S.now;
+    vis = `<div class="vis">${artUrl ? `<img src="${artUrl}" alt="">` : GLYPH.note}</div>`;
+    k = n.playing ? `<b class="g">Playing</b> · ${esc(n.app || "")}` : `Paused · ${esc(n.app || "")}`;
+    title = esc(n.title || "Untitled"); sub = esc(n.artist || "");
+    acts = `<button class="rb press" data-id="media:prev">${'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5.5h2v13H6zM19 5.8v12.4a.6.6 0 0 1-.92.5L9.5 12.5a.6.6 0 0 1 0-1l8.58-6.2a.6.6 0 0 1 .92.5z"/></svg>'}</button>
+      <button class="rb w press" data-id="media:play">${n.playing ? PAUSE : PLAY}</button>
+      <button class="rb press" data-id="media:next">${'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5.5h2v13h-2zM5 5.8v12.4a.6.6 0 0 0 .92.5l8.58-6.2a.6.6 0 0 0 0-1L5.92 5.3a.6.6 0 0 0-.92.5z"/></svg>'}</button>`;
+  } else if (it.type === "meeting") {
+    const m = S.meeting, [w, isNow] = meetWhen(m);
+    vis = `<div class="vis ${isNow ? "green" : "amber"}">${GLYPH.video}</div>`;
+    k = `Next meeting · <b class="${isNow ? "g" : ""}">${w}</b>`; title = esc(m.title); sub = `${fmtTime(m.start)} – ${fmtTime(m.end)}`;
+    acts = `<button class="pill press" data-id="meeting:join">${m.link ? "Join" : "Meeting mode"}</button>`;
+  } else if (it.type === "focus") {
+    const left = Math.max(0, S.focus.end - t), frac = left / (S.focus.minutes * 60000), mm = Math.floor(left / 60000), ss = Math.floor(left % 60000 / 1000);
+    const a = 360 * frac, r = 24, rad = (a - 90) * Math.PI / 180, ex = 34 + r * Math.cos(rad), ey = 34 + r * Math.sin(rad);
+    vis = `<div class="vis"><svg viewBox="0 0 68 68" style="width:68px;height:68px"><circle cx="34" cy="34" r="${r}" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="6"/>
+      ${frac > 0 ? `<path d="M34 ${34 - r} A${r} ${r} 0 ${a > 180 ? 1 : 0} 1 ${ex} ${ey}" fill="none" stroke="#ffb547" stroke-width="6" stroke-linecap="round"/>` : ""}</svg></div>`;
+    k = "<b>Focus</b> · ends " + fmtTime(S.focus.end); title = `${mm}:${String(ss).padStart(2, "0")} left`; sub = S.focus.mode ? "Notifications off · WhatsApp closed" : "Stay with one thing";
+    acts = `<button class="pill press" data-id="focus:stop" style="background:rgba(255,255,255,.12);color:#fff">End</button>`;
+  } else if (it.type === "task") {
+    const tasks = S.tasks, x = tasks[0], due = x.allday ? "Today" : fmtTime(x.due);
+    vis = `<div class="vis ${x.overdue ? "red" : "amber"}">${CHECK}</div>`;
+    k = `TickTick · <b class="${x.overdue ? "r" : ""}">${x.overdue ? "Overdue" : "Due " + due}</b>${tasks.length > 1 ? ` · ${tasks.length - 1} more` : ""}`;
+    title = esc(x.title); sub = esc(x.list || "");
+    acts = `<button class="rb w press" data-id="task:done:${esc(x.project)}:${esc(x.id)}" aria-label="Mark done">${CHECK}</button>`;
+  } else {
+    const m = S.meeting;
+    vis = `<div class="vis green">${CHECK}</div>`; k = "All clear"; title = "Nothing needs you right now";
+    sub = m ? `Next: ${esc(m.title)} · ${meetWhen(m)[0]}` : "No meetings coming up";
+  }
+  const dots = items.length > 1 ? `<div class="more">${items.map((_, i) => `<i class="${i === smartIdx % items.length ? "on" : ""}"></i>`).join("")}</div>` : "";
+  const html = `${vis}<div class="txt"><div class="k">${k}</div><div class="t">${title}</div><div class="s">${sub}</div></div><div class="acts">${acts}</div>${dots}`;
+  const sig = it.type + "|" + html.replace(/\d+:\d\d left/, "");
+  const el = $("#smart");
+  if (sig !== smartSig) { const animate = smartSig.split("|")[0] !== it.type; smartSig = sig; el.innerHTML = html;
+    if (animate) { el.style.animation = "none"; void el.offsetWidth; el.style.animation = ""; } }
+  else if (it.type === "focus") el.querySelector(".t").textContent = title;
+}
+$("#smart").addEventListener("click", (e) => { if (e.target.closest("[data-id]")) return; smartIdx++; smartSig = ""; paintSmart(); });
+
+/* ---------- now playing ---------- */
+let artKey = null, artUrl = null;
+function paintNow() {
+  const n = S.now;
+  $("#npTitle").textContent = n ? n.title || "Untitled" : "Nothing playing";
+  $("#npArtist").textContent = n ? [n.artist, n.album].filter(Boolean).join(" · ") || " " : "Start music or a video on the PC";
+  $("#npApp").textContent = n && n.app ? n.app : "Now playing";
+  $("#ppBtn").innerHTML = n && n.playing ? PAUSE : PLAY;
+  if (S.art !== artKey) {
+    artKey = S.art;
+    if (artKey) { const u = "/api/art?k=" + encodeURIComponent(artKey);
+      fetch(u, { headers: { "X-Pin": PIN } }).then(r => r.blob()).then(b => { const url = URL.createObjectURL(b);
+        artUrl = url; smartSig = ""; $("#art").innerHTML = `<img src="${url}" alt="">`; $("#artbg").style.backgroundImage = `url("${url}")`; $("#artbg").classList.add("show"); }).catch(() => {});
+    } else { artUrl = null; $("#art").innerHTML = GLYPH.note; $("#artbg").classList.remove("show"); }
+  }
+}
+
+/* ---------- focus ---------- */
+const FC = 125;
+function paintFocus() {
+  const f = S.focus, total = f ? f.minutes * 60000 : 25 * 60000, left = f ? Math.max(0, f.end - now()) : total, frac = left / total;
+  const p = (a, r) => [FC + r * Math.cos((a - 90) * Math.PI / 180), FC + r * Math.sin((a - 90) * Math.PI / 180)];
+  let t = ""; for (let i = 0; i < 60; i++) { const a = i * 6, on = f && i / 60 < frac, major = i % 5 === 0, [x0, y0] = p(a, 118), [x1, y1] = p(a, major ? 108 : 112);
+    t += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="rgba(255,255,255,${on ? .95 : .2})" stroke-width="${major ? 2 : 1.2}" stroke-linecap="round"/>`; }
+  const end = 360 * frac, [ex, ey] = p(Math.min(end, 359.99), 94);
+  const arcD = f && frac > 0 ? `<path d="M${p(0, 94).join(" ")} A94 94 0 ${end > 180 ? 1 : 0} 1 ${ex} ${ey}" fill="none" stroke="url(#fg)" stroke-width="12" stroke-linecap="round"/>` : "";
+  $("#focusSvg").innerHTML = `<defs><linearGradient id="fg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb547"/><stop offset="1" stop-color="#ff4d5e"/></linearGradient></defs>
+    <circle cx="${FC}" cy="${FC}" r="94" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="12"/>${arcD}${t}`;
+  const m = Math.floor(left / 60000), s = Math.floor(left % 60000 / 1000);
+  $("#focusT").textContent = `${m}:${String(s).padStart(2, "0")}`;
+  $("#focusK").textContent = f ? "Remaining" : "Ready";
+  $("#focusH").textContent = f ? "In focus" : "One thing at a time";
+  $("#focusP").textContent = f ? `Ends at ${fmtTime(f.end)}. Notifications are off and WhatsApp is closed until then.` : "Notifications go silent and WhatsApp closes until the chime.";
+  const want = f ? "run" : "idle";
+  if ($("#focusBtns").dataset.st !== want) { $("#focusBtns").dataset.st = want;
+    $("#focusBtns").innerHTML = f ? `<button class="fbtn glass press" data-focus="stop">End session</button>`
+      : `<button class="fbtn primary press" data-focus="25">25 min</button><button class="fbtn glass press" data-focus="50">50 min</button><button class="fbtn glass press" data-focus="90">90</button>`; }
+}
+let wasFocus = false;
+$("#focusBtns").addEventListener("click", async (e) => { const b = e.target.closest("[data-focus]"); if (!b) return; unlockAudio();
+  const v = b.dataset.focus; try { await api("/api/action", v === "stop" ? { id: "focus:stop" } : { id: "focus:start", value: +v }); poll(); } catch (er) { toast("Your PC isn't reachable"); } });
+let actx = null;
+function unlockAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (e) {} }
+function chime() { if (!actx) return; [0, .35, .7].forEach((d, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = [880, 1175, 1568][i];
+  o.connect(g); g.connect(actx.destination); const t = actx.currentTime + d; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.25, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + 1.2); o.start(t); o.stop(t + 1.3); }); }
+
+/* ---------- meeting ---------- */
+function meetWhen(m) { const d = m.start - now(); if (d <= 0) return [now() < m.end ? "Now" : "Ended", true];
+  const mins = Math.round(d / 60000); return [mins < 60 ? `in ${mins} min` : mins < 24 * 60 ? `at ${fmtTime(m.start)}` : "tomorrow " + fmtTime(m.start), false]; }
+function paintMeeting() {
+  const m = S.meeting, chip = $("#meetChip"), card = $("#meetCard");
+  if (!m) { chip.style.display = "none"; card.innerHTML = `<div class="kicker">Next meeting</div><div class="none">${S.meeting_err ? esc(S.meeting_err) : CFG && CFG.features.calendar ? "Nothing in the next two days" : "Calendar not connected yet"}</div>
+    <button class="join press" data-id="meeting:join">Meeting mode</button>`; return; }
+  const [w, isNow] = meetWhen(m), soon = m.start - now() < 3 * 3600000;
+  chip.style.display = "none"; chip.classList.toggle("now", isNow);
+  chip.querySelector("span").innerHTML = `${esc(m.title)} · <b>${w}</b>`;
+  card.innerHTML = `<div class="kicker">Next meeting</div><h4>${esc(m.title)}</h4><div class="when ${isNow ? "now" : ""}">${w} · ${fmtTime(m.start)}–${fmtTime(m.end)}</div>
+    <button class="join press" data-id="meeting:join">${m.link ? "Join · volume 40%" : "Meeting mode"}</button>`;
+}
+
+/* ---------- mic ---------- */
+function paintMic() {
+  const mm = !!S.mic_muted, chip = $("#micChip");
+  chip.classList.toggle("off", mm); chip.querySelector("span").textContent = mm ? "Mic muted" : "Mic live";
+  $("#micBtn").classList.toggle("muted", mm); $("#micTitle").textContent = mm ? "Mic muted" : "Mic is live";
+  $("#micSub").textContent = mm ? "Tap the circle to unmute" : "Tap the circle to mute";
+}
+
+/* ---------- claude ---------- */
+let claudeId = null, returnTo = null;
+function paintClaude() {
+  const c = S.claude, ic = CFG && CFG.claude_icon ? `<img src="/static/${CFG.claude_icon}" alt="">` : "";
+  document.body.classList.toggle("alert", !!c); $$("#dots i")[1].classList.toggle("ping", !!c);
+  if ((c ? c.id : null) === claudeId && $("#claudePage").innerHTML) return;
+  const fresh = c && c.id !== claudeId; claudeId = c ? c.id : null;
+  if (c) {
+    $("#claudePage").innerHTML = `<div><div class="chead"><div class="ci glass">${ic}</div><div><div class="tool">${esc(c.tool)}</div><h2>Claude wants to</h2></div></div>
+      <div class="req glass mono">${esc(c.summary)}</div>${c.detail && c.detail !== c.summary ? `<div class="cwd">${esc(c.detail)}</div>` : ""}<div class="cwd">${esc(c.cwd)}</div></div>
+      <div class="choices"><button class="choice primary press" data-claude="allow">Allow once</button><button class="choice glass press" data-claude="always">Always allow</button>
+      <button class="choice glass deny press" data-claude="deny">Deny</button><button class="choice link press" data-claude="pc">Decide on the PC</button></div>`;
+    if (fresh) { returnTo = returnTo ?? page(); goTo(1); $("#night").classList.remove("show"); lastTouch = Date.now(); }
+  } else {
+    $("#claudePage").innerHTML = `<div class="quiet"><div class="chead"><div class="ci glass">${ic}</div><h2>All quiet</h2></div>
+      <p>When Claude asks for permission, the request appears here with what it wants to run, and you answer from the phone.</p></div>
+      <div><div class="kicker" style="margin-bottom:10px">Answer a prompt already on screen</div><div class="choices small">
+      <button class="choice glass press" data-id="approve:once">Allow once</button><button class="choice glass press" data-id="approve:always">Always allow</button>
+      <button class="choice glass deny press" data-id="approve:deny">Deny</button></div></div>`;
+    if (returnTo != null) { goTo(returnTo); returnTo = null; }
+  }
+}
+$("#claudePage").addEventListener("click", async (e) => { const b = e.target.closest("[data-claude]"); if (!b || !claudeId) return;
+  try { const r = await api("/api/action", { id: `claude:${b.dataset.claude}:${claudeId}` }); if (!r.ok) toast(r.msg); setTimeout(poll, 150); } catch (er) { toast("Your PC isn't reachable"); } });
+
+/* ---------- state ---------- */
+async function poll() {
+  try {
+    S = await api("/api/state"); skew = S.server_time - Date.now();
+    if (!dragging) { if (S.vol != null) { vol = S.vol; muted = !!S.muted; } if (S.bright != null) bright = S.bright / 100; drawDial(); }
+    paintMic(); paintNow(); paintMeeting(); paintClaude(); paintSmart();
+    if (wasFocus && !S.focus) { chime(); toast("Focus session done"); } wasFocus = !!S.focus; paintFocus();
+    Object.entries(S.tiles || {}).forEach(([id, t]) => { const c = document.querySelector(`.card[data-id="${id}"]`); if (!c) return;
+      c.classList.toggle("on", !!t.on); const p = c.querySelector(".subt"), h = c.querySelector("h4");
+      if (t.focus_end) { const l = Math.max(0, t.focus_end - now()); t.sub = `${Math.floor(l / 60000)}:${String(Math.floor(l % 60000 / 1000)).padStart(2, "0")} left`; }
+      p.textContent = t.sub || p.dataset.sub; if (!h.dataset.t) h.dataset.t = h.textContent; h.textContent = t.title || h.dataset.t; });
+    $("#bat").textContent = S.battery != null ? (S.charging ? "⚡ " : "") + S.battery + "%" : "PC";
+  } catch (e) {}
+}
+
+/* ---------- actions & pages ---------- */
+async function press(el) {
+  const id = el.dataset.id; unlockAudio();
+  const link = CFG && (CFG.actions.find(a => a.id === id && a.type === "link") || null);
+  if (link) {  // opens an app on this phone; if nothing opens, say so
+    const t = setTimeout(() => toast("Could not open " + link.title + ". Open it from the home screen."), 1800);
+    document.addEventListener("visibilitychange", () => clearTimeout(t), { once: true });
+    location.href = link.url; return;
+  }
+  if (id === "mic:toggle") { S.mic_muted = !S.mic_muted; paintMic(); }
+  try {
+    const r = await api("/api/action", { id });
+    el.classList.remove("ok", "no"); void el.offsetWidth; el.classList.add(r.ok ? "ok" : "no");
+    if (!r.ok || id.startsWith("meeting")) toast(r.msg);
+    if (id.startsWith("meeting") || (CFG.actions.find(a => a.id === id) || {}).type === "meeting") goTo(4);
+    setTimeout(poll, 250);
+  } catch (e) { if (e.message !== "pin") toast("Your PC isn't reachable"); }
+  wake();
+}
+document.addEventListener("click", (e) => { if (longPressed) { longPressed = false; return; } const b = e.target.closest("[data-id]"); if (b && !e.target.closest("#sheet")) press(b); });
+const pages = $("#pages");
+const page = () => Math.round(pages.scrollLeft / pages.clientWidth);
+function goTo(i) { pages.scrollTo({ left: i * pages.clientWidth, behavior: "smooth" }); }
+pages.addEventListener("scroll", () => { const i = page(); $$("#dots i").forEach((d, k) => d.classList.toggle("on", k === i)); if (i !== 1 && !S.claude) returnTo = null; }, { passive: true });
+let ws = null;
+async function wake() { try { if ("wakeLock" in navigator && !ws) { ws = await navigator.wakeLock.request("screen"); ws.addEventListener("release", () => ws = null); } } catch (e) {} }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { ws = null; wake(); poll(); } });
+
+async function loadConfig() {
+  CFG = await api("/api/config");
+  CFG.actions.forEach(a => { if (a.type === "whatsapp" && !a.avatar) a.avatar = (a.title || "?")[0]; });
+  renderTiles();
+  $("#dialMode").style.display = CFG.features.brightness ? "" : "none";
+}
+let started = false;
+async function start() {
+  try { await loadConfig(); if (!started) { started = true; setInterval(poll, 1200); } poll(); }
+  catch (e) { if (e.message !== "pin") toast("Your PC isn't reachable"); }
+}
+tick(); setInterval(tick, 1000); drawDial(); paintFocus(); $("#art").innerHTML = GLYPH.note;
+if (!PIN) askPin(); else start();
+</script>
+</body>
+</html>

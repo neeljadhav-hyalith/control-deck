@@ -1,0 +1,34 @@
+{
+  "port": 8765,
+  "pin": "",
+  "hook_secret": "",
+  "actions": [
+    {"id": "eco", "title": "Eco", "sub": "Screens off · save power", "glyph": "eco", "type": "eco"},
+    {"id": "mygate", "title": "Mygate", "sub": "Open the app", "glyph": "gate", "type": "link", "url": "mygate://"},
+    {"id": "approve", "title": "Claude", "sub": "Nothing waiting", "glyph": "check", "type": "claude_approve"}
+  ],
+  "whatsapp": {
+    "launch": ["whatsapp:"],
+    "process_contains": "whatsapp",
+    "search_keys": ["ctrl", "f"],
+    "open_keys": ["enter"],
+    "launch_wait": 2.5,
+    "result_wait": 0.8
+  },
+  "approve": {
+    "process": "claude.exe",
+    "once": ["1"],
+    "always": ["2"],
+    "deny": ["esc"]
+  },
+  "icons": [
+    {"id": "claude", "site": "claude.ai", "icon_urls": ["https://claude.ai/apple-touch-icon.png"]},
+    {"id": "whatsapp", "site": "web.whatsapp.com"},
+    {"id": "wispr", "site": "wisprflow.ai"}
+  ],
+  "calendar_ics": "",
+  "claude_wait_seconds": 45,
+  "ticktick_client_id": "",
+  "ticktick_client_secret": "",
+  "show_tasks": false
+}

@@ -1,0 +1,6 @@
+config.json
+config.json.tmp
+deck.log
+static/icons/
+__pycache__/
+*.pyc
